@@ -1,8 +1,18 @@
 package mujina.saml;
 
+import static java.util.stream.Collectors.toList;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import javax.xml.namespace.QName;
 import org.joda.time.DateTime;
 import org.opensaml.Configuration;
 import org.opensaml.saml2.core.*;
+import org.opensaml.saml2.core.impl.AttributeBuilder;
+import org.opensaml.saml2.core.impl.AttributeStatementBuilder;
 import org.opensaml.xml.XMLObject;
 import org.opensaml.xml.XMLObjectBuilderFactory;
 import org.opensaml.xml.io.MarshallingException;
@@ -17,13 +27,6 @@ import org.opensaml.xml.signature.SignatureException;
 import org.opensaml.xml.signature.Signer;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
-
-import javax.xml.namespace.QName;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static java.util.stream.Collectors.toList;
 
 public class SAMLBuilder {
 
@@ -98,26 +101,44 @@ public class SAMLBuilder {
 
     Issuer issuer = buildIssuer(entityId);
 
+    // Set the audience for the token
     Audience audience = buildSAMLObject(Audience.class, Audience.DEFAULT_ELEMENT_NAME);
     audience.setAudienceURI(principal.getServiceProviderEntityID());
     AudienceRestriction audienceRestriction = buildSAMLObject(AudienceRestriction.class, AudienceRestriction.DEFAULT_ELEMENT_NAME);
     audienceRestriction.getAudiences().add(audience);
 
+    // Set the valid timerange for the token
     Conditions conditions = buildSAMLObject(Conditions.class, Conditions.DEFAULT_ELEMENT_NAME);
     conditions.getAudienceRestrictions().add(audienceRestriction);
+    conditions.setNotBefore(new DateTime().now());
+    conditions.setNotOnOrAfter(new DateTime().now().plusWeeks(2));
     assertion.setConditions(conditions);
+
+    // Add example attribute statements
+    addAttributeStatementToAssertion("email", principal.getName() + "@cerebrodata.com",
+        assertion);
+    addAttributeStatementToAssertion("userid", principal.getName(), assertion);
 
     AuthnStatement authnStatement = buildAuthnStatement(new DateTime(), entityId);
 
     assertion.setIssuer(issuer);
     assertion.getAuthnStatements().add(authnStatement);
 
-    assertion.getAttributeStatements().add(buildAttributeStatement(principal.getAttributes()));
-
     assertion.setID(randomSAMLId());
     assertion.setIssueInstant(new DateTime());
 
     return assertion;
+  }
+
+  private static void addAttributeStatementToAssertion(String key, String value,
+      Assertion assertion) {
+    Attribute userIdAttribute =
+        buildAttribute(key, new ArrayList<String>(Arrays.asList(value)));
+    AttributeStatement userIdAttributeStatement =
+        buildSAMLObject(AttributeStatement.class,
+        AttributeStatement.DEFAULT_ELEMENT_NAME);
+    userIdAttributeStatement.getAttributes().add(userIdAttribute);
+    assertion.getAttributeStatements().add(userIdAttributeStatement);
   }
 
   public static void signAssertion(SignableXMLObject signableXMLObject, Credential signingCredential) throws MarshallingException, SignatureException {

@@ -2,6 +2,7 @@ package mujina.idp;
 
 import mujina.api.IdpConfiguration;
 import mujina.saml.ProxiedSAMLContextProviderLB;
+import mujina.saml.SAMLAttribute;
 import mujina.saml.SAMLBuilder;
 import mujina.saml.SAMLPrincipal;
 import org.joda.time.DateTime;
@@ -13,6 +14,7 @@ import org.opensaml.common.xml.SAMLConstants;
 import org.opensaml.saml2.core.Assertion;
 import org.opensaml.saml2.core.AuthnRequest;
 import org.opensaml.saml2.core.Issuer;
+import org.opensaml.saml2.core.NameIDType;
 import org.opensaml.saml2.core.Response;
 import org.opensaml.saml2.core.Status;
 import org.opensaml.saml2.core.StatusCode;
@@ -32,6 +34,9 @@ import org.opensaml.xml.security.criteria.EntityIDCriteria;
 import org.opensaml.xml.signature.SignatureException;
 import org.opensaml.xml.validation.ValidationException;
 import org.opensaml.xml.validation.ValidatorSuite;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.key.KeyManager;
 
@@ -39,6 +44,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -61,6 +67,7 @@ public class SAMLMessageHandler {
 
   private final List<ValidatorSuite> validatorSuites;
   private final ProxiedSAMLContextProviderLB proxiedSAMLContextProviderLB;
+  protected final Logger LOG = LoggerFactory.getLogger(getClass());
 
   public SAMLMessageHandler(KeyManager keyManager, Collection<SAMLMessageDecoder> decoders,
                             SAMLMessageEncoder encoder, SecurityPolicyResolver securityPolicyResolver,
@@ -106,26 +113,34 @@ public class SAMLMessageHandler {
         SAMLConstants.SAML2_POST_BINDING_URI)));
   }
 
-  public void sendAuthnResponse(SAMLPrincipal principal, HttpServletResponse response) throws MarshallingException, SignatureException, MessageEncodingException {
+  public Response buildAuthResponse(SAMLPrincipal principal) throws MarshallingException, SignatureException {
     Status status = buildStatus(StatusCode.SUCCESS_URI);
-
     String entityId = idpConfiguration.getEntityId();
+    Issuer issuer = buildIssuer(entityId);
     Credential signingCredential = resolveCredential(entityId);
 
     Response authResponse = buildSAMLObject(Response.class, Response.DEFAULT_ELEMENT_NAME);
-    Issuer issuer = buildIssuer(entityId);
-
     authResponse.setIssuer(issuer);
     authResponse.setID(SAMLBuilder.randomSAMLId());
     authResponse.setIssueInstant(new DateTime());
+    authResponse.setStatus(status);
     authResponse.setInResponseTo(principal.getRequestID());
 
     Assertion assertion = buildAssertion(principal, status, entityId);
     signAssertion(assertion, signingCredential);
 
     authResponse.getAssertions().add(assertion);
-    authResponse.setDestination(principal.getAssertionConsumerServiceURL());
 
+    return authResponse;
+  }
+
+  public void sendAuthnResponse(SAMLPrincipal principal, HttpServletResponse response) throws MarshallingException, SignatureException, MessageEncodingException {
+    Status status = buildStatus(StatusCode.SUCCESS_URI);
+    String entityId = idpConfiguration.getEntityId();
+    Credential signingCredential = resolveCredential(entityId);
+    Response authResponse = buildAuthResponse(principal);
+
+    authResponse.setDestination(principal.getAssertionConsumerServiceURL());
     authResponse.setStatus(status);
 
     Endpoint endpoint = buildSAMLObject(Endpoint.class, SingleSignOnService.DEFAULT_ELEMENT_NAME);
@@ -144,10 +159,46 @@ public class SAMLMessageHandler {
     messageContext.setRelayState(principal.getRelayState());
 
     encoder.encode(messageContext);
-
   }
 
-  private Credential resolveCredential(String entityId) {
+  public Response buildSamlToken(Authentication authentication)
+      throws MarshallingException, SignatureException {
+
+    //public SAMLPrincipal(String nameID, String nameIDType, List<SAMLAttribute> attributes, String serviceProviderEntityID, String requestID, String assertionConsumerServiceURL, String relayState) {
+      SAMLPrincipal principal = new SAMLPrincipal(
+        authentication.getName(),
+        NameIDType.UNSPECIFIED,
+        new ArrayList<SAMLAttribute>(),
+        "cerebrodata.com",
+        "request1",
+        "/singleSignon",
+        "fakeRelayState");
+
+      // Let's build the SAML token to return
+      Status status = buildStatus(StatusCode.SUCCESS_URI);
+      String entityId = idpConfiguration.getEntityId();
+      LOG.debug("Authentication principal: " + entityId);
+      Issuer issuer = SAMLBuilder.buildIssuer(entityId);
+      LOG.debug("Issuer: " + issuer.getValue());
+      Credential signingCredential = resolveCredential(entityId);
+      LOG.debug("Signing credential: " + signingCredential.getEntityId());
+
+      Response authResponse = SAMLBuilder.buildSAMLObject(Response.class, Response.DEFAULT_ELEMENT_NAME);
+      authResponse.setIssuer(issuer);
+      authResponse.setStatus(status);
+      authResponse.setID(SAMLBuilder.randomSAMLId());
+      authResponse.setIssueInstant(new DateTime());
+      authResponse.setInResponseTo(principal.getRequestID());
+
+      Assertion assertion = SAMLBuilder.buildAssertion(principal, status, entityId);
+      signAssertion(assertion, signingCredential);
+
+      authResponse.getAssertions().add(assertion);
+
+      return authResponse;
+  }
+
+  public Credential resolveCredential(String entityId) {
     try {
       return keyManager.resolveSingle(new CriteriaSet(new EntityIDCriteria(entityId)));
     } catch (SecurityException e) {

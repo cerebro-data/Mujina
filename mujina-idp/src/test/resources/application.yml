@@ -17,7 +17,7 @@ server:
 
 # Identity Provider
 idp:
-  entity_id: http://mock-idp
+  entity_id: cerebrodata
   # base url
   base_url: http://localhost:8080
   # Private key used to sign the SAML response

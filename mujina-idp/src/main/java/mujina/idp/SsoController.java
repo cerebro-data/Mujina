@@ -68,7 +68,7 @@ public class SsoController {
     samlMessageHandler.sendAuthnResponse(principal, response);
   }
 
-  private List<SAMLAttribute> attributes(String uid) {
+  public List<SAMLAttribute> attributes(String uid) {
     return idpConfiguration.getAttributes().entrySet().stream()
       .map(entry ->  entry.getKey().equals("urn:mace:dir:attribute-def:uid") ?
         new SAMLAttribute(entry.getKey(), singletonList(uid)) :
