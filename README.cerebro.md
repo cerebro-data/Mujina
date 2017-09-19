@@ -25,5 +25,5 @@ cat cerebro.sasl.crt |head -n -1 |tail -n +2 | tr -d '\n' > cerebro.sasl.crt.str
 mv cerebro.sasl.crt.stripped cerebro.sasl.crt
 
 
-NOTE: You will need to update the base_uri setting in the mujina-idp/src/main/resources/application.yaml 
-and mujina-sp/src/main/resources/application.yaml files
+NOTE: You will need to update the base_uri setting in the mujina-idp/src/main/resources/application.yml 
+and mujina-sp/src/main/resources/application.yml files
